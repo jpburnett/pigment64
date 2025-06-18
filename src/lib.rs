@@ -1,24 +1,45 @@
 use num_enum::TryFromPrimitive;
+#[cfg_attr(not(feature = "python_bindings"), allow(unused_imports))]
+use std::io::Cursor;
+use thiserror::Error;
+
+// PyO3 imports (will only be used if the feature is enabled)
+#[cfg(feature = "python_bindings")]
+use pyo3::prelude::*;
+#[cfg(feature = "python_bindings")]
+use pyo3::types::PyBytes;
 
 pub mod color;
 
 pub mod image;
 pub use image::native_image::NativeImage;
-pub use image::png_image::create_palette_from_png;
 pub use image::png_image::PNGImage;
-
-mod utils;
+pub use image::png_image::create_palette_from_png;
 
 use strum_macros::{EnumCount, EnumIter};
+
+#[derive(Debug, Error)]
+pub enum Pigment64Error {
+    #[error("Invalid image size for TLUT: {0:?}")]
+    InvalidSizeForTlut(ImageSize),
+    #[error("Unknown image size value: {0}")]
+    UnknownImageSize(u8),
+    #[error("Unknown image format value: {0}")]
+    UnknownImageFormat(u8),
+    #[error("Unknown image type value: {0}")]
+    UnknownImageType(u8),
+    #[error("Unknown texture LUT value: {0}")]
+    UnknownTextureLUT(u8),
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, TryFromPrimitive)]
 #[repr(u8)]
 pub enum ImageSize {
+    Bits1 = 4,
     Bits4 = 0,
     Bits8 = 1,
     Bits16 = 2,
     Bits32 = 3,
-    Bits1 = 4,
     DD = 5,
 }
 
@@ -130,4 +151,33 @@ pub enum TextureLUT {
     None = 0,
     Rgba16 = 2,
     Ia16 = 3,
+}
+
+// Python wrapper for create_palette_from_png
+// This whole function will only be compiled if "python_bindings" feature is active.
+#[cfg(feature = "python_bindings")]
+#[pyfunction]
+fn extract_palette_from_png_bytes(py: Python, png_bytes: &[u8]) -> PyResult<Py<PyBytes>> {
+    let mut png_cursor = Cursor::new(png_bytes);
+    let mut palette_data_vec: Vec<u8> = Vec::new();
+
+    // Explicitly map the error from the underlying function to a PyErr.
+    // This is more robust than relying on implicit conversions.
+    create_palette_from_png(&mut png_cursor, &mut palette_data_vec).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to extract palette: {}", e))
+    })?;
+
+    // If the above call succeeds, convert the result to PyBytes
+    let py_bytes = PyBytes::new(py, &palette_data_vec);
+    Ok(py_bytes.into())
+}
+
+/// Pigment64 Python module.
+/// This whole module definition will only be compiled if "python_bindings" feature is active.
+#[cfg(feature = "python_bindings")]
+#[pymodule]
+#[pyo3(name = "pigment64")]
+fn pigment64_py_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(extract_palette_from_png_bytes, m)?)?;
+    Ok(())
 }

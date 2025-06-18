@@ -1,2 +1,8 @@
 /target
 .idea
+
+__pycache__/
+
+/dist/
+/.venv/
+/venv/
