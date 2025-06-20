@@ -1,6 +1,6 @@
 # pigment64
 
-[![CI](https://github.com/decompals/pigment64/actions/workflows/ci.yml/badge.svg)](https://github.com/decompals/pigment64/actions/workflows/ci.yml)
+[![Rust](https://github.com/decompals/pigment64/actions/workflows/rust.yml/badge.svg)](https://github.com/decompals/pigment64/actions/workflows/rust.yml)
 [![Crates.io](https://img.shields.io/crates/v/pigment64.svg)](https://crates.io/crates/pigment64)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/decompals/pigment64/blob/master/LICENSE)
 
