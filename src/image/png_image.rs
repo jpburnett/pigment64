@@ -1,6 +1,5 @@
-use crate::ImageType;
 use crate::color::Color;
-use anyhow::{Result, anyhow};
+use crate::{ImageType, Pigment64Error};
 use byteorder::{BigEndian, WriteBytesExt};
 use png::{BitDepth, ColorType};
 use std::io::{Read, Write};
@@ -25,7 +24,7 @@ fn u8_to_u4(x: u8) -> u8 {
 }
 
 impl PNGImage {
-    pub fn read<R: Read>(r: R) -> Result<Self> {
+    pub fn read<R: Read>(r: R) -> Result<Self, Pigment64Error> {
         let decoder = png::Decoder::new(r);
         let mut reader = decoder.read_info()?;
         let mut buf = vec![0; reader.output_buffer_size()];
@@ -63,7 +62,7 @@ impl PNGImage {
     }
 
     /// Writes the image as a PNG to the given writer.
-    pub fn as_png<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_png<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         let mut encoder = png::Encoder::new(writer, self.width, self.height);
         encoder.set_color(self.color_type);
         encoder.set_depth(self.bit_depth);
@@ -72,7 +71,11 @@ impl PNGImage {
         Ok(())
     }
 
-    pub fn as_native<W: Write>(&self, writer: &mut W, image_type: ImageType) -> Result<()> {
+    pub fn as_native<W: Write>(
+        &self,
+        writer: &mut W,
+        image_type: ImageType,
+    ) -> Result<(), Pigment64Error> {
         match image_type {
             ImageType::I1 => self.as_i1(writer),
             ImageType::I4 => self.as_i4(writer),
@@ -87,24 +90,25 @@ impl PNGImage {
         }
     }
 
-    pub fn as_ci8<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_ci8<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         if self.bit_depth != BitDepth::Eight || self.color_type != ColorType::Indexed {
-            return Err(anyhow!(
-                "Invalid format for CI8 conversion. Expected 8-bit Indexed PNG. Got: {:?}, {:?}",
-                self.color_type,
-                self.bit_depth
-            ));
+            return Err(Pigment64Error::UnsupportedPngConversion {
+                color: self.color_type,
+                depth: self.bit_depth,
+                target_format: ImageType::Ci8,
+            });
         }
         writer.write_all(&self.data)?;
         Ok(())
     }
 
-    pub fn as_ci4<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_ci4<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         if self.color_type != ColorType::Indexed {
-            return Err(anyhow!(
-                "Invalid color type for CI4 conversion: {:?}. Expected Indexed.",
-                self.color_type
-            ));
+            return Err(Pigment64Error::UnsupportedPngConversion {
+                color: self.color_type,
+                depth: self.bit_depth,
+                target_format: ImageType::Ci4,
+            });
         }
 
         match self.bit_depth {
@@ -115,17 +119,18 @@ impl PNGImage {
                 }
             }
             _ => {
-                return Err(anyhow!(
-                    "Unsupported bit depth for CI4 conversion: {:?}",
-                    self.bit_depth
-                ));
+                return Err(Pigment64Error::UnsupportedPngConversion {
+                    color: self.color_type,
+                    depth: self.bit_depth,
+                    target_format: ImageType::Ci4,
+                });
             }
         }
 
         Ok(())
     }
 
-    pub fn as_i1<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_i1<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         if let (ColorType::Grayscale, BitDepth::One) = (self.color_type, self.bit_depth) {
             writer.write_all(&self.data)?;
         } else {
@@ -148,7 +153,7 @@ impl PNGImage {
         Ok(())
     }
 
-    pub fn as_i4<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_i4<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         match (self.color_type, self.bit_depth) {
             (ColorType::Grayscale, BitDepth::Four) => writer.write_all(&self.data)?,
             (ColorType::Grayscale, BitDepth::Eight) => {
@@ -174,12 +179,18 @@ impl PNGImage {
                     writer.write_u8(u8_to_u4(i1) << 4 | u8_to_u4(i2))?;
                 }
             }
-            p => return Err(anyhow!("Unsupported format for I4 conversion: {:?}", p)),
+            _ => {
+                return Err(Pigment64Error::UnsupportedPngConversion {
+                    color: self.color_type,
+                    depth: self.bit_depth,
+                    target_format: ImageType::I4,
+                });
+            }
         }
         Ok(())
     }
 
-    pub fn as_i8<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_i8<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         match (self.color_type, self.bit_depth) {
             (ColorType::Grayscale, BitDepth::Eight) => writer.write_all(&self.data)?,
             (ColorType::Grayscale, BitDepth::Four) => {
@@ -199,12 +210,18 @@ impl PNGImage {
                     writer.write_u8(c.rgb_to_intensity())?;
                 }
             }
-            p => return Err(anyhow!("Unsupported format for I8 conversion: {:?}", p)),
+            _ => {
+                return Err(Pigment64Error::UnsupportedPngConversion {
+                    color: self.color_type,
+                    depth: self.bit_depth,
+                    target_format: ImageType::I8,
+                });
+            }
         }
         Ok(())
     }
 
-    pub fn as_ia4<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_ia4<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         match (self.color_type, self.bit_depth) {
             (ColorType::GrayscaleAlpha, BitDepth::Eight) => {
                 for chunk in self.data.chunks_exact(4) {
@@ -234,12 +251,18 @@ impl PNGImage {
                     writer.write_u8(high << 4 | (low & 0xF))?;
                 }
             }
-            p => return Err(anyhow!("Unsupported format for IA4 conversion: {:?}", p)),
+            _ => {
+                return Err(Pigment64Error::UnsupportedPngConversion {
+                    color: self.color_type,
+                    depth: self.bit_depth,
+                    target_format: ImageType::Ia4,
+                });
+            }
         }
         Ok(())
     }
 
-    pub fn as_ia8<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_ia8<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         match (self.color_type, self.bit_depth) {
             (ColorType::GrayscaleAlpha, BitDepth::Eight) => {
                 for chunk in self.data.chunks_exact(2) {
@@ -254,12 +277,18 @@ impl PNGImage {
                     writer.write_u8(i << 4 | a)?;
                 }
             }
-            p => return Err(anyhow!("Unsupported format for IA8 conversion: {:?}", p)),
+            _ => {
+                return Err(Pigment64Error::UnsupportedPngConversion {
+                    color: self.color_type,
+                    depth: self.bit_depth,
+                    target_format: ImageType::Ia8,
+                });
+            }
         }
         Ok(())
     }
 
-    pub fn as_ia16<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_ia16<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         match (self.color_type, self.bit_depth) {
             (ColorType::GrayscaleAlpha, BitDepth::Eight) => writer.write_all(&self.data)?,
             (ColorType::Rgba, BitDepth::Eight) => {
@@ -271,12 +300,18 @@ impl PNGImage {
                     writer.write_u8(a)?;
                 }
             }
-            p => return Err(anyhow!("Unsupported format for IA16 conversion: {:?}", p)),
+            _ => {
+                return Err(Pigment64Error::UnsupportedPngConversion {
+                    color: self.color_type,
+                    depth: self.bit_depth,
+                    target_format: ImageType::Ia16,
+                });
+            }
         }
         Ok(())
     }
 
-    pub fn as_rgba16<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_rgba16<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         match (self.color_type, self.bit_depth) {
             (ColorType::Rgba, BitDepth::Eight) => {
                 for chunk in self.data.chunks_exact(4) {
@@ -284,21 +319,36 @@ impl PNGImage {
                     writer.write_u16::<BigEndian>(color.to_u16())?;
                 }
             }
-            p => return Err(anyhow!("Unsupported format for RGBA16 conversion: {:?}", p)),
+            _ => {
+                return Err(Pigment64Error::UnsupportedPngConversion {
+                    color: self.color_type,
+                    depth: self.bit_depth,
+                    target_format: ImageType::Rgba16,
+                });
+            }
         }
         Ok(())
     }
 
-    pub fn as_rgba32<W: Write>(&self, writer: &mut W) -> Result<()> {
+    pub fn as_rgba32<W: Write>(&self, writer: &mut W) -> Result<(), Pigment64Error> {
         match (self.color_type, self.bit_depth) {
             (ColorType::Rgba, BitDepth::Eight) => writer.write_all(&self.data)?,
-            p => return Err(anyhow!("Unsupported format for RGBA32 conversion: {:?}", p)),
+            _ => {
+                return Err(Pigment64Error::UnsupportedPngConversion {
+                    color: self.color_type,
+                    depth: self.bit_depth,
+                    target_format: ImageType::Rgba32,
+                });
+            }
         }
         Ok(())
     }
 }
 
-pub fn create_palette_from_png<R: Read, W: Write>(r: R, writer: &mut W) -> Result<()> {
+pub fn create_palette_from_png<R: Read, W: Write>(
+    r: R,
+    writer: &mut W,
+) -> Result<(), Pigment64Error> {
     let decoder = png::Decoder::new(r);
     let reader = decoder.read_info()?;
     let info = reader.info();
@@ -306,7 +356,7 @@ pub fn create_palette_from_png<R: Read, W: Write>(r: R, writer: &mut W) -> Resul
     let rgb_data = info
         .palette
         .as_ref()
-        .ok_or_else(|| anyhow!("given PNG has no palette"))?;
+        .ok_or(Pigment64Error::MissingPngPalette)?;
 
     let alpha_data = info.trns.as_ref();
 

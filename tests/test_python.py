@@ -1,15 +1,14 @@
+import os
 import pytest
 import pigment64
-import os
 
-# Get the absolute path to the directory where this test script is located.
-# This makes the tests runnable from any directory.
+# Get the directory of the current test file
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def test_extract_palette_from_png_bytes_success():
+
+def test_extract_palette_from_png_bytes():
     """
-    Tests that a valid PNG with a palette returns the correct palette bytes.
-    It compares the output against the known-good 'ci4.tlut.bin' file.
+    Tests that a valid CI4 PNG with a TLUT returns the expected palette.
     """
     # Arrange: Construct the full path to the test asset files
     png_path = os.path.join(TESTS_DIR, "ci4.png")
@@ -32,4 +31,31 @@ def test_extract_palette_from_png_bytes_success():
 
     # Assert: Check that the actual output matches the expected output
     assert actual_palette_bytes == expected_palette_bytes
-    assert len(actual_palette_bytes) == 32
+
+
+def test_roundtrip_rgba16():
+    """
+    Performs a round-trip test for the RGBA16 format.
+    1. Reads a native RGBA16 .bin file.
+    2. Converts it to PNG bytes using the rust library.
+    3. Creates a PNGImage from the PNG bytes.
+    4. Converts it back to native RGBA16 bytes.
+    5. Asserts the result is identical to the original.
+    """
+    # Arrange: Read the original native binary data
+    native_bin_path = os.path.join(TESTS_DIR, "rgba16.png.bin")
+    with open(native_bin_path, "rb") as f:
+        original_native_bytes = f.read()
+
+    # Act 1: Convert native binary to PNG bytes
+    png_bytes = pigment64.native_to_png(
+        original_native_bytes, "rgba16", 256, 256, None
+    )
+
+    # Act 2: Convert the PNG bytes back to native RGBA16
+    png_image = pigment64.PNGImage(png_bytes)
+    roundtrip_native_bytes = png_image.as_rgba16()
+
+    # Assert
+    assert roundtrip_native_bytes == original_native_bytes
+
